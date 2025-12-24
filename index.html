@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Image Classifier</title>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <style>
+      body {
+        font-family: "Segoe UI", sans-serif;
+        text-align: center;
+        background-color: #f4f4f9;
+        padding: 20px;
+      }
+      .container {
+        max-width: 500px;
+        margin: 0 auto;
+        background: white;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+      }
+      .upload-btn-wrapper {
+        margin: 20px 0;
+      }
+      input[type="file"] {
+        display: none;
+      }
+      .custom-file-upload {
+        border: 2px dashed #007bff;
+        display: inline-block;
+        padding: 12px 24px;
+        cursor: pointer;
+        border-radius: 5px;
+        color: #007bff;
+        font-weight: bold;
+        transition: 0.3s;
+      }
+      .custom-file-upload:hover {
+        background-color: #eef6ff;
+      }
+      #preview-image {
+        max-width: 50%;
+        margin-left: auto;
+        margin-right: auto;
+        height: auto;
+        border-radius: 8px;
+        margin-top: 10px;
+        display: none;
+        border: 1px solid #ddd;
+      }
+      #result {
+        font-size: 26px;
+        font-weight: bold;
+        margin-top: 20px;
+        color: #333;
+        min-height: 40px;
+      }
+      .debug-section {
+        margin-top: 30px;
+        border-top: 1px solid #eee;
+        padding-top: 10px;
+      }
+      .debug-info {
+        font-size: 12px;
+        color: #888;
+      }
+      canvas {
+        border: 1px solid red;
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Upload Your Photo</h1>
+      <p>Rock, Paper or Scissors</p>
+
+      <div class="upload-btn-wrapper">
+        <label class="custom-file-upload">
+          <input type="file" id="image-upload" accept="image/*" />
+          Select Image
+        </label>
+      </div>
+
+      <img id="preview-image" alt="Preview" />
+
+      <div id="result">Upload a photo to start</div>
+
+      <div class="debug-section">
+        <p class="debug-info">AI Vision (128x128 Grayscale):</p>
+        <canvas id="ai-view" width="128" height="128"></canvas>
+      </div>
+    </div>
+
+    <script>
+      const MODEL_PATH = "./model/rock_paper_scissors.onnx";
+      const CLASSES = ["Paper", "Rock", "Scissors"];
+
+      let session;
+      const uploadInput = document.getElementById("image-upload");
+      const previewImg = document.getElementById("preview-image");
+      const canvas = document.getElementById("ai-view");
+      const ctx = canvas.getContext("2d");
+      const resultDiv = document.getElementById("result");
+
+      async function init() {
+        try {
+          resultDiv.innerText = "Loading model...";
+          session = await ort.InferenceSession.create(MODEL_PATH);
+          resultDiv.innerText = "Model ready. Upload a photo.";
+        } catch (e) {
+          resultDiv.innerHTML =
+            '<span style="color:red">Error loading model. Check the console.</span>';
+        }
+      }
+
+      uploadInput.onchange = async (evt) => {
+        if (!session) {
+          alert("The model has not finished loading yet.");
+          return;
+        }
+
+        const file = evt.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.src = e.target.result;
+          img.onload = () => {
+            previewImg.src = img.src;
+            previewImg.style.display = "block";
+            runInference(img);
+          };
+        };
+        reader.readAsDataURL(file);
+      };
+
+      async function runInference(imageElement) {
+        resultDiv.innerText = "Analyzing...";
+
+        ctx.clearRect(0, 0, 128, 128);
+        ctx.drawImage(imageElement, 0, 0, 128, 128);
+
+        const imageData = ctx.getImageData(0, 0, 128, 128);
+        const pixels = imageData.data;
+        const float32Data = new Float32Array(128 * 128);
+
+        for (let i = 0; i < pixels.length; i += 4) {
+          const r = pixels[i];
+          const g = pixels[i + 1];
+          const b = pixels[i + 2];
+
+          let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+          pixels[i] = gray;
+          pixels[i + 1] = gray;
+          pixels[i + 2] = gray;
+
+          float32Data[i / 4] = (gray / 255.0 - 0.5) / 0.5;
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+
+        try {
+          const inputTensor = new ort.Tensor(
+            "float32",
+            float32Data,
+            [1, 1, 128, 128]
+          );
+
+          const feeds = {};
+          feeds[session.inputNames[0]] = inputTensor;
+
+          const results = await session.run(feeds);
+          const output = results[session.outputNames[0]].data;
+
+          const maxVal = Math.max(...output);
+          const maxIndex = output.indexOf(maxVal);
+
+          const expValues = Array.from(output).map(Math.exp);
+          const sumExp = expValues.reduce((a, b) => a + b, 0);
+          const confidence = (expValues[maxIndex] / sumExp) * 100;
+
+          resultDiv.innerHTML = `
+            It is: <span style="color:#007bff">${CLASSES[maxIndex]}</span>
+            <span style="font-size:16px">(${confidence.toFixed(1)}%)</span>
+          `;
+        } catch (err) {
+          resultDiv.innerText = "Prediction error.";
+        }
+      }
+
+      init();
+    </script>
+  </body>
+</html>
