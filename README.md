@@ -2,6 +2,8 @@
 
 Convolutional Neural Network (CNN) implementation for hand gesture classification, trained in PyTorch and deployed via ONNX Runtime Web.
 
+Demo: https://cnn-rpc-classifier.netlify.app/
+
 ## Project Structure
 
 - **model/rock_paper_scissors.onnx**: Trained model weights exported for production use.
